@@ -1,6 +1,6 @@
 
 <div align="center">
-  <img src="docs/assets/example1.gif" alt="Visualization of Algorithm in R1" style="width: 45%;">
+  <img src="assets/example1.gif" alt="Visualization of Algorithm in R1" style="width: 45%;">
 </div>
 
 <div align="center">
