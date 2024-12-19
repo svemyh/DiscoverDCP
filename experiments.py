@@ -1,3 +1,6 @@
+import os
+import shutil
+
 import numpy as np
 import cvxpy as cp
 from pysr import PySRRegressor
@@ -751,6 +754,12 @@ while True:
     except:
         i += 1
         continue
+
+
+# After the run, move 'hall_of_fame'-files to 'hall_of_fame/' directory
+for filename in os.listdir('.'):
+    if filename.startswith('hall_of_fame') and (filename.endswith('.csv') or filename.endswith('.pkl') or filename.endswith('.csv.bkup')):
+        shutil.move(filename, os.path.join('hall_of_fame', filename))
 
 
 
