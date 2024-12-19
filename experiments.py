@@ -548,24 +548,131 @@ def hidden_model_log_sum_exp_quadratic(X):
 
 
 # =========================================
-# 1. Data Generation with Specified Mean and Standard Deviation
+# 1. Synthetic Data Generation
 # =========================================
-mu = 1
-x_0 = np.array([-1.0, -1.0, -1.0, -1.0])
-sigma = 1
+# mu = 0
+# x_0 = np.array([0.0])
+# sigma = 1
 
-n_samples = 10000
+# n_samples = 1000
+# n_features = 1
+
+
+# MIN_X = -1
+# MAX_X = 1
+
+# # Sample data from N(mu, sigma^2)
+# X = x_0 + sigma * np.random.randn(n_samples, n_features)
+# X = np.random.uniform(MIN_X, MAX_X, size=(n_samples, n_features))
+
+
+def find_feasible_point(A, b):
+    """
+    Find a feasible point inside the polytope {x | A x <= b}.
+    Uses a linear feasibility problem.
+    """
+    n = A.shape[1]
+    x = cp.Variable(n)
+    constraints = [A @ x <= b]
+    obj = cp.Minimize(0)
+    prob = cp.Problem(obj, constraints)
+    prob.solve(solver=cp.SCS)
+    
+    if prob.status not in ["infeasible", "unbounded"]:
+        return x.value
+    else:
+        raise ValueError("No feasible point found. The polytope might be empty.")
+
+def sample_direction(n):
+    """
+    Sample a random direction uniformly from the unit sphere in R^n.
+    """
+    d = np.random.randn(n)
+    d /= np.linalg.norm(d)
+    return d
+
+def hit_and_run_step(x_current, A, b):
+    """
+    Perform one hit-and-run step from x_current in the polytope {x | A x <= b}.
+    """
+    d = sample_direction(len(x_current))
+    Ad = A @ d
+    Ax0 = A @ x_current
+
+    t_min, t_max = -np.inf, np.inf
+    for i in range(A.shape[0]):
+        denominator = Ad[i]
+        numerator = b[i] - Ax0[i]
+        if np.abs(denominator) < 1e-15:
+            # Direction is nearly orthogonal to this constraint
+            if Ax0[i] > b[i]:
+                # x_current is outside or on boundary in a problematic way
+                return x_current
+        else:
+            t_i = numerator / denominator
+            if denominator > 0:
+                t_max = min(t_max, t_i)
+            else:
+                t_min = max(t_min, t_i)
+
+    if t_min > t_max:
+        # No feasible segment, return current point as fallback
+        return x_current
+
+    t_new = np.random.uniform(t_min, t_max)
+    return x_current + t_new * d
+
+def sample_uniform_from_polytope(A, b, n_samples, burn_in=1000):
+    """
+    Use the hit-and-run algorithm to sample uniformly from the polytope {x | A x <= b}.
+    """
+    # Find a feasible starting point
+    x_current = find_feasible_point(A, b)
+
+    # Burn-in phase
+    for _ in range(burn_in):
+        x_current = hit_and_run_step(x_current, A, b)
+
+    # Generate samples
+    samples = []
+    for _ in range(n_samples):
+        x_current = hit_and_run_step(x_current, A, b)
+        samples.append(x_current.copy())
+    return np.array(samples)
+
+
+# =========================================
+# Manually define A and b for the 4D cube: -1 <= x_i <= 1
+
+m = 0.5 # Scaling factor for the cube
+
+A = np.array([
+    [ 1,  0,  0,  0],   #  x0 <= b_0
+    [-1,  0,  0,  0],  # -x0 <= b_1
+    [ 0,  1,  0,  0],   #  x1 <= b_2
+    [ 0, -1,  0,  0],  # -x1 <= b_3
+    [ 0,  0,  1,  0],   #  x2 <= b_4
+    [ 0,  0, -1,  0],  # -x2 <= b_5
+    [ 0,  0,  0,  1],   #  x3 <= b_6
+    [ 0,  0,  0, -1]   # -x3 <= b_7
+])
+b = m * np.array([1, 1, 1, 1, 1, 1, 1, 1])
+
+N_SAMPLES = 10000
+BURN_IN = 10000
 n_features = 4
 
-# Sample data from N(mu, sigma^2)
-X = x_0 + sigma * np.random.randn(n_samples, n_features)
+X = sample_uniform_from_polytope(A, b, n_samples=N_SAMPLES, burn_in=BURN_IN)
+print("Sampled points shape:", X.shape)
+print("First 5 sampled points:\n", X[:5])
+
 
 
 
 
 
 # =========================================
-y = hidden_model_quadratic(X)
+y = hidden_model_blended_max_exp(X)
 # =========================================
 
 
@@ -573,7 +680,7 @@ y = hidden_model_quadratic(X)
 
 
 
-y += 1.0* np.random.randn(n_samples) # Add some noise to the data
+#y += 1.0* np.random.randn(N_SAMPLES) # Add some noise to the data
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
@@ -608,10 +715,10 @@ nested_constraints = {
     "*": {"exp": 0, "square": 0, "max": 0, "*": 0},
 }
 
-MAX_COMPLEXITY = 200
+MAX_COMPLEXITY = 100
 
 pysr_model = PySRRegressor(
-    niterations=5000,
+    niterations=50,
     binary_operators=binary_operators,
     unary_operators=unary_operators,
     extra_sympy_mappings=extra_sympy_mappings,
