@@ -550,9 +550,9 @@ def hidden_model_log_sum_exp_quadratic(X):
 
 
 
-# =========================================
+# =============================
 # 1. Synthetic Data Generation
-# =========================================
+# =============================
 # mu = 0
 # x_0 = np.array([0.0])
 # sigma = 1
@@ -629,14 +629,11 @@ def sample_uniform_from_polytope(A, b, n_samples, burn_in=1000):
     """
     Use the hit-and-run algorithm to sample uniformly from the polytope {x | A x <= b}.
     """
-    # Find a feasible starting point
     x_current = find_feasible_point(A, b)
 
-    # Burn-in phase
     for _ in range(burn_in):
         x_current = hit_and_run_step(x_current, A, b)
 
-    # Generate samples
     samples = []
     for _ in range(n_samples):
         x_current = hit_and_run_step(x_current, A, b)
@@ -645,18 +642,16 @@ def sample_uniform_from_polytope(A, b, n_samples, burn_in=1000):
 
 
 # =========================================
-# Manually define A and b for the 4D cube: -1 <= x_i <= 1
 
 m = 0.5 # Scaling factor for the cube
-
 A = np.array([
-    [ 1,  0,  0,  0],   #  x0 <= b_0
+    [ 1,  0,  0,  0],  #  x0 <= b_0
     [-1,  0,  0,  0],  # -x0 <= b_1
-    [ 0,  1,  0,  0],   #  x1 <= b_2
+    [ 0,  1,  0,  0],  #  x1 <= b_2
     [ 0, -1,  0,  0],  # -x1 <= b_3
-    [ 0,  0,  1,  0],   #  x2 <= b_4
+    [ 0,  0,  1,  0],  #  x2 <= b_4
     [ 0,  0, -1,  0],  # -x2 <= b_5
-    [ 0,  0,  0,  1],   #  x3 <= b_6
+    [ 0,  0,  0,  1],  #  x3 <= b_6
     [ 0,  0,  0, -1]   # -x3 <= b_7
 ])
 b = m * np.array([1, 1, 1, 1, 1, 1, 1, 1])
@@ -683,15 +678,15 @@ y = hidden_model_blended_max_exp(X)
 
 
 
-#y += 1.0* np.random.randn(N_SAMPLES) # Add some noise to the data
+#y += 1.0* np.random.randn(N_SAMPLES) # Add Gaussian white noise to the data
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
 
-# =========================================
+# ====================================================================
 # 2. PySR model initialization, defining operators and model training
-# =========================================
+# ====================================================================
 binary_operators = ["+", "*", "max"]
 unary_operators = ["exp", "square"]
 
@@ -734,15 +729,12 @@ pysr_model = PySRRegressor(
 )
 pysr_model.fit(X_train, y_train)
 
-# =========================================
+# ===========================================
 # Print the Best-Discovered Equation by PySR
-# =========================================
+# ===========================================
 
 print("pysr_model: ", pysr_model)
-#print("pysr_model[1]: ", pysr_model[1])
 print("pysr_model.get_best().sympy_format: ", pysr_model.get_best().sympy_format)
-#print("pysr_model(1).sympy_format: ", pysr_model(1).sympy_format)
-#print("pysr_model.index(1).sympy_format: ", pysr_model.index(1).sympy_format)
 
 
 i = 0
@@ -768,34 +760,26 @@ best_equation = pysr_model.get_best()
 print(f"\nBest Discovered Equation by PySR: {best_equation.sympy_format}")
 
 
-# =========================================
+# =====================================================================================
 # 3. Quadratic Model Initialization and Training with Positive Semidefinite Constraint
-# =========================================
+# =====================================================================================
 poly = PolynomialFeatures(degree=2, include_bias=False)
 X_train_poly = poly.fit_transform(X_train)
 X_test_poly = poly.transform(X_test)
 
-# Extract the number of polynomial features
 n_poly_features = X_train_poly.shape[1]
 
-# Define CVXPY variables for the quadratic model
-# We will define A as a symmetric positive semidefinite matrix directly
 A = cp.Variable((n_features, n_features))
 b = cp.Variable(n_features)
 c = cp.Variable()
 
-# Define the objective: minimize Mean Squared Error (MSE)
 objective = 0
 for i in range(X_train.shape[0]):
     xi = X_train[i]
     yi = y_train[i]
-    # Compute quadratic term: x_i^T A x_i
     quadratic_term = cp.quad_form(xi, A)
-    # Compute linear term: x_i^T b
     linear_term = xi @ b
-    # Compute prediction: y_pred = x_i^T A x_i + x_i^T b + c
     y_pred = quadratic_term + linear_term + c
-    # Accumulate squared error
     objective += cp.square(y_pred - yi)
 
 # Average the MSE over the training samples
@@ -805,14 +789,15 @@ objective = cp.Minimize(objective / X_train.shape[0])
 # find lowest (approximate) epsilon that makes A positive semidefinite
 eps = 1e-9
 while True:
+    if eps >= 1e-3:
+        print("The optimization problem did not solve successfully.")
+        break
 
-    # Define constraints to ensure A is symmetric and positive semidefinite
     constraints = [
         A >>  eps * np.eye(n_features),  # Tightened PSD constraint
         A == A.T  # Ensuring symmetry
     ]
 
-    # Define and solve the optimization problem using CVXOPT for better precision
     try:
         prob = cp.Problem(objective, constraints)
         prob.solve(solver=cp.CVXOPT, verbose=True)
@@ -821,9 +806,7 @@ while True:
         prob = cp.Problem(objective, constraints)
         prob.solve(solver=cp.SCS, verbose=True)
 
-    # Check if the problem was solved successfully
     if prob.status not in ["infeasible", "unbounded"]:
-        # Extract the coefficients
         A_opt = A.value
         b_opt = b.value
         c_opt = c.value
@@ -846,14 +829,10 @@ while True:
 
 
 
-# =========================================
+# ===========================
 # 4. Predictions on Test Set
-# =========================================
-# PySR model predictions on test set
+# ===========================
 y_pred_pysr = pysr_model.predict(X_test)
-
-
-
 
 
 ####### using actual optimal equation #######
@@ -869,10 +848,9 @@ y_pred_quad = np.array([
     xi @ A_opt @ xi + xi @ b_opt + c_opt for xi in X_test
 ])
 
-# =========================================
+# =============================
 # 5. Error Metrics Calculation
-# =========================================
-# Calculate error metrics on test set
+# =============================
 mse_pysr = mean_squared_error(y_test, y_pred_pysr)
 mse_pysr_opt = mean_squared_error(y_test, y_pred_pysr_opt)
 mse_quad = mean_squared_error(y_test, y_pred_quad)
@@ -890,14 +868,12 @@ print(f"Mean Absolute Error (Quadratic model) on Test Set: {mae_quad:.4f}\n")
 print("PySR Discovered Equations:")
 print(pysr_model)
 
-# =========================================
+# ========================================================
 # 6. Quadratic Model in Matrix Form with Numerical Values
-# =========================================
+# ========================================================
 print("\nQuadratic Model Equation:")
-# Get feature names
-feature_names = poly.get_feature_names_out()
 
-# Build the quadratic equation string: y = x^T A x + b^T x + c
+feature_names = poly.get_feature_names_out()
 quadratic_equation = f"y = {c_opt:.4f}"
 for i in range(n_features):
     for j in range(n_features):
@@ -906,7 +882,7 @@ for i in range(n_features):
                 quadratic_equation += f" + {A_opt[i, j]:.4f}*x{i}^2"
             elif i < j:
                 quadratic_equation += f" + {A_opt[i, j]:.4f}*x{i}*x{j}"
-# Add linear terms
+
 linear_terms = " + " + " + ".join([f"{b_opt[i]:.4f}*x{i}" for i in range(n_features)]) if any(b_opt) else ""
 quadratic_equation += linear_terms
 print(quadratic_equation)
@@ -917,9 +893,9 @@ print(A_opt)
 print("\nLinear Coefficients (b):")
 print(b_opt)
 
-# =========================================
+# ==================
 # 7. Visualizations
-# =========================================
+# ==================
 
 # -----------------------------------------
 # Figure 1: True vs Predicted Values for All Models
@@ -1061,9 +1037,9 @@ plt.xlabel('Feature')
 plt.ylabel('Feature')
 plt.show()
 
-# =========================================
+# =======================================
 # 8. Eigenvalues and Residual Statistics
-# =========================================
+# =======================================
 
 # Compute and print eigenvalues of A_opt
 eigenvalues = np.linalg.eigvalsh(A_opt)  # More efficient for symmetric matrices
