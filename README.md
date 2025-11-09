@@ -10,4 +10,4 @@
 <br>
 <br>
 
-Read full paper [here](https://github.com/svemyh/DiscoverDCP/blob/main/DiscoverDCP.pdf).
+View the full paper [here](https://github.com/svemyh/DiscoverDCP/blob/main/DiscoverDCP.pdf), or download it as a PDF [here](https://github.com/svemyh/DiscoverDCP/raw/main/DiscoverDCP.pdf).
